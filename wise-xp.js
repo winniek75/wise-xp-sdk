@@ -201,6 +201,7 @@
             border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
             font-weight:900;font-size:11px">${player.level}</span>
           <span style="color:#ffd93d;font-weight:700;font-size:12px">${player.total_xp.toLocaleString()} XP</span>
+          <span style="color:#00d9ff;font-size:11px">🪙${(player.coins||0).toLocaleString()}</span>
           ${player.streak_current > 0 ? `<span style="color:#ff6b9d;font-size:11px">🔥${player.streak_current}</span>` : ''}
         </div>
         <div style="height:3px;background:#333;border-radius:2px;width:80px;overflow:hidden">
@@ -208,6 +209,60 @@
         </div>
       </div>
     `;
+  };
+
+  // ---- Reward Popup ----
+  const showRewardPopup = (coins, type, xp) => {
+    const existing = document.getElementById('wise-xp-reward');
+    if (existing) existing.remove();
+
+    const colors = { normal:'#00d9ff', bonus:'#ffd93d', rare:'#c44eff', legendary:'#ff6b9d' };
+    const labels = { normal:'REWARD!', bonus:'BONUS! x2', rare:'RARE! x3', legendary:'LEGENDARY! x5' };
+    const emojis = { normal:'🪙', bonus:'💰', rare:'💎', legendary:'👑' };
+    const bgGradients = {
+      normal:'linear-gradient(135deg,#0f2027,#203a43)',
+      bonus:'linear-gradient(135deg,#f7971e,#ffd200)',
+      rare:'linear-gradient(135deg,#8e2de2,#4a00e0)',
+      legendary:'linear-gradient(135deg,#ff416c,#ff4b2b)'
+    };
+
+    const popup = document.createElement('div');
+    popup.id = 'wise-xp-reward';
+    popup.style.cssText = `
+      position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;
+      background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);
+      animation:wise-fade-in 0.3s ease;
+    `;
+    popup.innerHTML = `
+      <div style="background:${bgGradients[type]};border-radius:24px;padding:32px;text-align:center;
+        min-width:280px;border:3px solid ${colors[type]};
+        box-shadow:0 0 60px ${colors[type]}40;
+        animation:wise-pop 0.5s cubic-bezier(0.34,1.56,0.64,1);font-family:'M PLUS Rounded 1c',sans-serif">
+        <div style="font-size:48px;margin-bottom:8px;animation:wise-bounce 0.6s ease infinite">${emojis[type]}</div>
+        <div style="font-size:24px;font-weight:900;color:${type==='bonus'?'#1a1a2e':'white'};
+          text-shadow:0 2px 10px rgba(0,0,0,0.3)">${labels[type]}</div>
+        <div style="font-size:36px;font-weight:900;color:${type==='bonus'?'#1a1a2e':'white'};
+          margin:12px 0">${emojis[type]} +${coins}</div>
+        <div style="font-size:14px;color:${type==='bonus'?'#333':'rgba(255,255,255,0.7)'}">+${xp} XP</div>
+        <div style="margin-top:16px;font-size:12px;color:${type==='bonus'?'#555':'rgba(255,255,255,0.5)'}">タップして閉じる</div>
+      </div>
+    `;
+    popup.onclick = () => popup.remove();
+    document.body.appendChild(popup);
+    setTimeout(() => { if (popup.parentNode) popup.remove(); }, 4000);
+  };
+
+  // Inject reward animations
+  const injectRewardCSS = () => {
+    if (document.getElementById('wise-xp-reward-css')) return;
+    const style = document.createElement('style');
+    style.id = 'wise-xp-reward-css';
+    style.textContent = `
+      @keyframes wise-fade-in{from{opacity:0}to{opacity:1}}
+      @keyframes wise-pop{0%{transform:scale(0) rotate(-5deg)}60%{transform:scale(1.1) rotate(2deg)}100%{transform:scale(1) rotate(0deg)}}
+      @keyframes wise-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    `;
+    document.head.appendChild(style);
   };
 
   // ---- Public API ----
@@ -219,6 +274,7 @@
     init: async function (slug) {
       if (initialized && gameSlug === slug) return;
       gameSlug = slug;
+      injectRewardCSS();
       const player = await getOrCreatePlayer();
       if (player) {
         const updated = await updateStreak(player);
@@ -266,6 +322,26 @@
       }, `?id=eq.${playerId}`);
 
       const updatedPlayer = { ...player, total_xp: newXP, level: newLevel, games_played: newGames };
+
+      // Award coins (2 per correct answer + bonus)
+      const baseCoins = correct * 2;
+      const bonusRoll = Math.random();
+      let coinMultiplier = 1;
+      let rewardType = 'normal';
+      if (bonusRoll < 0.02) { coinMultiplier = 5; rewardType = 'legendary'; }
+      else if (bonusRoll < 0.07) { coinMultiplier = 3; rewardType = 'rare'; }
+      else if (bonusRoll < 0.20) { coinMultiplier = 2; rewardType = 'bonus'; }
+      const coinsEarned = baseCoins * coinMultiplier;
+
+      if (coinsEarned > 0) {
+        const newCoins = (updatedPlayer.coins || 0) + coinsEarned;
+        await api('players', 'PATCH', { coins: newCoins, total_coins_earned: (updatedPlayer.total_coins_earned || 0) + coinsEarned }, `?id=eq.${playerId}`);
+        await api('coin_transactions', 'POST', { player_id: playerId, amount: coinsEarned, reason: 'game_reward', details: { game: gameSlug, multiplier: coinMultiplier, type: rewardType } });
+        updatedPlayer.coins = newCoins;
+      }
+
+      // Show reward popup
+      showRewardPopup(coinsEarned, rewardType, xpEarned);
 
       // Check achievements
       const newAchievements = await checkAchievements(updatedPlayer);
@@ -536,6 +612,66 @@
 
       renderModal();
       document.body.appendChild(modal);
+    },
+
+    /**
+     * Get shop items.
+     */
+    getShopItems: async function () {
+      return await api('shop_items', 'GET', null, '?order=price.asc&select=*') || [];
+    },
+
+    /**
+     * Buy an item from the shop.
+     * @returns {{ success, message, item }}
+     */
+    buyItem: async function (itemId) {
+      if (!playerId) return { success: false, message: 'Not initialized' };
+      const player = await WiseXP.getStats();
+      if (!player) return { success: false, message: 'Player not found' };
+
+      const items = await api('shop_items', 'GET', null, `?id=eq.${itemId}&select=*`);
+      if (!items || !items[0]) return { success: false, message: 'Item not found' };
+      const item = items[0];
+
+      if ((player.coins || 0) < item.price) return { success: false, message: 'コインが足りません' };
+
+      // Deduct coins
+      const newCoins = player.coins - item.price;
+      await api('players', 'PATCH', { coins: newCoins }, `?id=eq.${playerId}`);
+
+      // Add to inventory (upsert: increase quantity if exists)
+      const existing = await api('player_inventory', 'GET', null, `?player_id=eq.${playerId}&item_id=eq.${itemId}&select=id,quantity`);
+      if (existing && existing.length > 0) {
+        await api('player_inventory', 'PATCH', { quantity: existing[0].quantity + 1 }, `?id=eq.${existing[0].id}`);
+      } else {
+        await api('player_inventory', 'POST', { player_id: playerId, item_id: itemId });
+      }
+
+      // Log transaction
+      await api('coin_transactions', 'POST', { player_id: playerId, amount: -item.price, reason: 'purchase', details: { item_id: itemId } });
+
+      // Update widget
+      const updated = await WiseXP.getStats();
+      if (updated) renderWidget(updated);
+
+      return { success: true, message: `${item.name_ja}を購入しました！`, item };
+    },
+
+    /**
+     * Get player's inventory.
+     */
+    getInventory: async function () {
+      if (!playerId) return [];
+      return await api('player_inventory', 'GET', null, `?player_id=eq.${playerId}&select=*,shop_items(*)`) || [];
+    },
+
+    /**
+     * Get player's coin balance.
+     */
+    getCoins: async function () {
+      const player = await WiseXP.getStats();
+      return player ? (player.coins || 0) : 0;
     },
 
     /** Get the player ID */
