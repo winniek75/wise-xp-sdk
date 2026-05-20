@@ -362,11 +362,162 @@
       }));
     },
 
+    /**
+     * Generate a 6-digit parent access code.
+     * @returns {string} The access code
+     */
+    generateParentCode: async function () {
+      if (!playerId) return null;
+      const res = await api('rpc/generate_parent_code', 'POST', { p_player_id: playerId });
+      return res;
+    },
+
+    /**
+     * Get existing parent access code.
+     */
+    getParentCode: async function () {
+      if (!playerId) return null;
+      const rows = await api('parent_access', 'GET', null, `?player_id=eq.${playerId}&select=access_code`);
+      return rows && rows[0] ? rows[0].access_code : null;
+    },
+
+    /**
+     * Update player profile.
+     */
+    updateProfile: async function ({ displayName, avatarEmoji } = {}) {
+      if (!playerId) return null;
+      const patch = {};
+      if (displayName) patch.display_name = displayName;
+      if (avatarEmoji) patch.avatar_emoji = avatarEmoji;
+      patch.updated_at = new Date().toISOString();
+      const res = await api('players', 'PATCH', patch, `?id=eq.${playerId}`);
+      if (res && res[0]) renderWidget(res[0]);
+      return res ? res[0] : null;
+    },
+
+    /**
+     * Show the profile/settings modal. Call this from a settings button.
+     */
+    showProfile: async function () {
+      const player = await WiseXP.getStats();
+      if (!player) return;
+
+      let parentCode = await WiseXP.getParentCode();
+      const portalUrl = 'https://wise-english-portal-winniek75s-projects.vercel.app/parent';
+
+      // Remove existing modal
+      const existing = document.getElementById('wise-xp-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'wise-xp-modal';
+      modal.style.cssText = `
+        position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
+        background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);
+      `;
+
+      const avatarOptions = ['🐱','🐶','🐼','🐰','🐻','🐧','🦊','🐥','🦁','🐸','🦄','🐨'];
+
+      const renderModal = () => {
+        modal.innerHTML = `
+          <div style="background:#1a1a2e;border-radius:24px;padding:32px;max-width:380px;width:90%;
+            border:2px solid rgba(255,255,255,0.1);box-shadow:0 20px 60px rgba(0,0,0,0.5);
+            font-family:'M PLUS Rounded 1c',sans-serif;color:white;position:relative">
+            <button id="wise-xp-close" style="position:absolute;top:12px;right:16px;background:none;
+              border:none;color:#999;font-size:24px;cursor:pointer">&times;</button>
+            <div style="text-align:center;margin-bottom:20px">
+              <div style="font-size:48px;margin-bottom:8px">${player.avatar_emoji}</div>
+              <div style="font-size:20px;font-weight:900">${player.display_name}</div>
+              <div style="color:#ffd93d;font-size:14px;margin-top:4px">Lv.${player.level} / ${player.total_xp.toLocaleString()} XP</div>
+            </div>
+            <div style="margin-bottom:16px">
+              <div style="font-size:12px;color:#999;margin-bottom:8px">アバターを変更</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+                ${avatarOptions.map(e => `
+                  <button class="wise-avatar-btn" data-emoji="${e}" style="font-size:24px;width:40px;height:40px;
+                    border-radius:10px;border:2px solid ${e === player.avatar_emoji ? '#ffd93d' : 'transparent'};
+                    background:${e === player.avatar_emoji ? 'rgba(255,217,61,0.2)' : 'rgba(255,255,255,0.05)'};
+                    cursor:pointer;display:flex;align-items:center;justify-content:center">${e}</button>
+                `).join('')}
+              </div>
+            </div>
+            <div style="background:rgba(139,92,246,0.15);border:2px solid rgba(139,92,246,0.3);
+              border-radius:16px;padding:16px;text-align:center;margin-bottom:16px">
+              <div style="font-size:12px;color:#a78bfa;margin-bottom:8px">保護者アクセスコード</div>
+              ${parentCode ? `
+                <div style="font-size:32px;font-weight:900;letter-spacing:8px;color:white;
+                  font-family:monospace;margin-bottom:8px">${parentCode}</div>
+                <div style="font-size:11px;color:#999">保護者はこのコードでダッシュボードにアクセスできます</div>
+              ` : `
+                <button id="wise-gen-code" style="background:linear-gradient(135deg,#8b5cf6,#ec4899);
+                  color:white;border:none;border-radius:12px;padding:10px 24px;font-weight:700;
+                  font-size:14px;cursor:pointer">コードを発行する</button>
+              `}
+            </div>
+            ${parentCode ? `
+              <a href="${portalUrl}" target="_blank" style="display:block;text-align:center;
+                color:#a78bfa;font-size:12px;text-decoration:underline;margin-bottom:8px">
+                保護者ダッシュボードを開く
+              </a>
+            ` : ''}
+            <div style="display:flex;gap:8px;margin-top:16px">
+              <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;text-align:center">
+                <div style="font-size:20px;font-weight:900">${player.games_played}</div>
+                <div style="font-size:10px;color:#999">プレイ回数</div>
+              </div>
+              <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;text-align:center">
+                <div style="font-size:20px;font-weight:900;color:#ff6b9d">${player.streak_current > 0 ? player.streak_current + '日' : '-'}</div>
+                <div style="font-size:10px;color:#999">連続</div>
+              </div>
+              <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:12px;padding:12px;text-align:center">
+                <div style="font-size:20px;font-weight:900;color:#ffd93d">${player.streak_best}</div>
+                <div style="font-size:10px;color:#999">最長記録</div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Event listeners
+        modal.querySelector('#wise-xp-close').onclick = () => modal.remove();
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+        const genBtn = modal.querySelector('#wise-gen-code');
+        if (genBtn) {
+          genBtn.onclick = async () => {
+            genBtn.textContent = '発行中...';
+            genBtn.disabled = true;
+            parentCode = await WiseXP.generateParentCode();
+            renderModal();
+          };
+        }
+
+        modal.querySelectorAll('.wise-avatar-btn').forEach(btn => {
+          btn.onclick = async () => {
+            const emoji = btn.dataset.emoji;
+            player.avatar_emoji = emoji;
+            await WiseXP.updateProfile({ avatarEmoji: emoji });
+            renderModal();
+          };
+        });
+      };
+
+      renderModal();
+      document.body.appendChild(modal);
+    },
+
     /** Get the player ID */
     getPlayerId: () => playerId,
 
     /** Check if initialized */
     isInitialized: () => initialized
+  };
+
+  // Make widget clickable to show profile
+  const origRenderWidget = renderWidget;
+  renderWidget = (player) => {
+    origRenderWidget(player);
+    const widget = document.getElementById('wise-xp-widget');
+    if (widget) widget.onclick = () => WiseXP.showProfile();
   };
 
   // Expose globally
