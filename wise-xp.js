@@ -139,20 +139,53 @@
     return toEarn;
   };
 
+  // ---- Mobile optimization CSS injection ----
+  const injectMobileCSS = () => {
+    if (document.getElementById('wise-xp-mobile-css')) return;
+    const style = document.createElement('style');
+    style.id = 'wise-xp-mobile-css';
+    style.textContent = `
+      @media (max-width: 768px) {
+        button, [role="button"], a.btn, .btn, input[type="submit"] {
+          min-height: 44px !important;
+          min-width: 44px !important;
+        }
+        input, select, textarea {
+          font-size: 16px !important;
+        }
+      }
+      @media (hover: none) and (pointer: coarse) {
+        button:active, [role="button"]:active {
+          transform: scale(0.97) !important;
+          transition: transform 0.1s !important;
+        }
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
   // ---- XP Status Widget ----
   const renderWidget = (player) => {
+    injectMobileCSS();
+    const isMobile = window.innerWidth <= 768;
     let widget = document.getElementById('wise-xp-widget');
     if (!widget) {
       widget = document.createElement('div');
       widget.id = 'wise-xp-widget';
       widget.style.cssText = `
-        position:fixed;top:8px;right:8px;z-index:9999;
-        background:rgba(15,15,26,0.95);border-radius:16px;padding:8px 14px;
-        display:flex;align-items:center;gap:8px;
+        position:fixed;top:${isMobile ? '4px' : '8px'};right:${isMobile ? '4px' : '8px'};z-index:9999;
+        background:rgba(15,15,26,0.95);border-radius:${isMobile ? '12px' : '16px'};
+        padding:${isMobile ? '6px 10px' : '8px 14px'};
+        display:flex;align-items:center;gap:${isMobile ? '6px' : '8px'};
         border:2px solid rgba(255,217,61,0.3);
         box-shadow:0 4px 20px rgba(0,0,0,0.4);
-        font-family:'M PLUS Rounded 1c',sans-serif;font-size:13px;
+        font-family:'M PLUS Rounded 1c',sans-serif;font-size:${isMobile ? '11px' : '13px'};
         cursor:pointer;transition:all 0.3s;
+        -webkit-tap-highlight-color:transparent;
       `;
       widget.addEventListener('mouseenter', () => { widget.style.transform = 'scale(1.05)'; });
       widget.addEventListener('mouseleave', () => { widget.style.transform = 'scale(1)'; });
